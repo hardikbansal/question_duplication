@@ -19,6 +19,7 @@ class DD():
 		self.load_checkpoint = False
 		self.emb_size = opt.emb_size
 		self.num_token = opt.num_token
+		self.num_train_questions = 300000
 		
 		self.tensorboard_dir = "./output/tensorboard"
 		self.check_dir = "./output/checkpoints"
@@ -37,13 +38,15 @@ class DD():
 		
 		self.questions1 = self.df['question1'].values
 		self.questions2 = self.df['question2'].values
+		self.y_train = self.df['is_duplicate'].values
 		
 		self.tk.fit_on_texts(self.questions1 + self.questions2)
 
 		self.num_questions = self.questions1.size
 		self.word_index = self.tk.word_index
+
 		
-		# Loading test and validation dataset 
+		# Loading test dataset 
 
 		self.df_test = pd.read_csv("data/test.csv", delimiter=",")
 		self.num_test_questions = self.df_test.shape[0]
@@ -51,78 +54,9 @@ class DD():
 		self.df_test['question1'] = self.df_test['question1'].apply(lambda x: str(x).strip())
 		self.df_test['question2'] = self.df_test['question2'].apply(lambda x: str(x).strip())
 
-		self.questions1_valid = self.df['question1'].values[:self.num_test_questions/2]
-		self.questions2_valid = self.df['question2'].values[:self.num_test_questions/2]
-		self.y_valid = self.df['is_duplicate'].values[:self.num_test_questions/2]
 
-
-		self.questions1_test = self.df['question1'].values[self.num_test_questions/2:]
-		self.questions2_test = self.df['question2'].values[self.num_test_questions/2:]
-		self.y_test = self.df['is_duplicate'].values[self.num_test_questions/2:]
-
-
-
-	def glove_emb(self):
-
-		self.glove_embedding = {}
-
-		self.n_words = len(self.word_index)
-
-		print("Loading glove matrix")
-		
-		f = open("data/glove.42B.300d.txt", "r")
-		for lines in f:
-			line = lines.split(' ')
-			self.glove_embedding[line[0]] = np.asarray(line[1:], dtype=np.float32)
-
-		print("Done loading glove matrix")
-
-		# sys.exit()
-
-		self.embedding_matrix = np.zeros((self.num_token, 300), dtype=np.float32)
-
-		for words in self.word_index.items():
-			temp = self.glove_embedding.get(words[0])
-			if(temp is not None and words[1] < self.num_token):
-				self.embedding_matrix[words[1]] = temp
-
-		print("Done making embedding matrix")
-
-
-
-	def network(self, ques):
-
-		o_l1 = linear1d(ques, self.emb_size, 128, name="l1")
-		o_l2 = linear1d(o_l1, 128, 128, name="l2")
-		o_l3 = linear1d(o_l2, 128, 128, name="l3")
-		o_conc = tf.concat([o_l1, o_l2, o_l3], axis=1)
-		out = tf.contrib.layers.batch_norm(o_conc, decay=0.9, updates_collections=None, epsilon=1e-5, scale=True, scope="batch_norm")
-
-		return out
-
-
-	def loss_setup(self, y_pred, y_act):
-
-		return tf.reduce_mean((1 - y_act)*(y_pred) + (y_act)*tf.square(tf.maximum(1 - tf.sqrt(y_pred), 0)))
-
-	def model_setup(self):
-
-		with tf.variable_scope("Model", reuse=tf.AUTO_REUSE) as scope:
-
-			self.qs1_ph = tf.placeholder(tf.float32, [None, self.emb_size])
-			self.qs2_ph = tf.placeholder(tf.float32, [None, self.emb_size])
-			self.y_ph = tf.placeholder(tf.float32, [None, 1])
-
-			o_net_1 = self.network(self.qs1_ph)
-			o_net_2 = self.network(self.qs2_ph)
-
-			self.pred_y = (tf.reduce_sum(tf.squared_difference(o_net_1, o_net_2)))
-
-			self.loss = self.loss_setup(self.pred_y, self.y_ph)
-
-			optimizer = tf.train.AdamOptimizer(0.001, beta1=0.5)
-			self.loss_optimizer = optimizer.minimize(self.loss)
-			self.loss_summ = tf.summary.scalar("loss", self.loss)
+		self.questions1_test = self.df_test['question1'].values
+		self.questions2_test = self.df_test['question2'].values
 
 	def pre_process(self):
 
@@ -141,13 +75,13 @@ class DD():
 
 			# print(self.embedding_matrix[1])
 
-			i = 0
-
 			self.question1_glove = np.zeros((self.num_questions, 300), dtype=np.float32)
 			self.question2_glove = np.zeros((self.num_questions, 300), dtype=np.float32)
 
 			# Making the glove vector by taking the sum of all glove vector of the words
 
+			i = 0
+			
 			while(i+1000 < self.num_questions):
 
 				temp = self.tk.texts_to_matrix(self.questions1[i:i+1000], mode="tfidf")
@@ -172,14 +106,12 @@ class DD():
 			if not os.path.exists(self.check_dir):
 				os.makedirs(self.check_dir)
 
-
 			# Saving processed data
 
 			np.save(self.check_dir+"/glove1.npy", self.question1_glove)
 			np.save(self.check_dir+"/glove2.npy", self.question2_glove)
-			self.y_train = self.df['is_duplicate'].values
 			np.save(self.check_dir+"/y_train.npy", self.y_train)
-			np.save(self.check_dir+"emb_matrix.npy", self.embedding_matrix)
+			np.save(self.check_dir+"/emb_matrix.npy", self.embedding_matrix)
 
 		else :
 
@@ -188,8 +120,76 @@ class DD():
 			self.load_dataset()
 			self.question1_glove = np.load(self.check_dir+"/glove1.npy")
 			self.question2_glove = np.load(self.check_dir+"/glove2.npy")
-			self.y_train = np.load(self.check_dir+"/y_train.npy")
 			self.embedding_matrix = np.load(self.check_dir+"/emb_matrix.npy")
+
+
+
+	def glove_emb(self):
+
+		self.glove_embedding = {}
+
+		self.n_words = len(self.word_index)
+
+		print("Loading glove matrix")
+		
+		f = open("data/glove.42B.300d.txt", "r")
+		for lines in f:
+			line = lines.split(' ')
+			self.glove_embedding[line[0]] = np.asarray(line[1:], dtype=np.float32)
+
+		print("Done loading glove matrix")
+
+
+		# Creating the embedding matrix of required words
+
+		self.embedding_matrix = np.zeros((self.num_token, 300), dtype=np.float32)
+
+		for words in self.word_index.items():
+			temp = self.glove_embedding.get(words[0])
+			if(temp is not None and words[1] < self.num_token):
+				self.embedding_matrix[words[1]] = temp
+
+		print("Done making embedding matrix")
+
+
+
+	def network(self, ques):
+
+		o_l1 = linear1d(ques, self.emb_size, 128, name="l1")
+		o_l2 = linear1d(o_l1, 128, 128, name="l2")
+		o_l3 = linear1d(o_l2, 128, 128, name="l3")
+		o_conc = tf.concat([o_l1, o_l2, o_l3], axis=1)
+		out = tf.contrib.layers.batch_norm(o_conc, decay=0.9, updates_collections=None, epsilon=1e-5, scale=True, scope="batch_norm")
+
+		return out
+
+
+	def contrast_loss(self, y_pred, y_act):
+
+		return tf.reduce_mean((1 - y_act)*(y_pred) + (y_act)*tf.square(tf.maximum(1 - tf.sqrt(y_pred), 0)))
+
+	def model_setup(self):
+
+		with tf.variable_scope("Model", reuse=tf.AUTO_REUSE) as scope:
+
+			self.qs1_ph = tf.placeholder(tf.float32, [None, self.emb_size])
+			self.qs2_ph = tf.placeholder(tf.float32, [None, self.emb_size])
+			self.y_ph = tf.placeholder(tf.float32, [None, 1])
+
+			o_net_1 = self.network(self.qs1_ph)
+			o_net_2 = self.network(self.qs2_ph)
+
+			self.pred_y = tf.reduce_sum(tf.squared_difference(o_net_1, o_net_2),axis=1, keep_dims=True)
+
+			self.loss = self.contrast_loss(self.pred_y, self.y_ph)
+
+			optimizer = tf.train.AdamOptimizer(0.001, beta1=0.5)
+			self.loss_optimizer = optimizer.minimize(self.loss)
+			self.loss_summ = tf.summary.scalar("loss", self.loss)
+
+	def accuracy(self, y_pred, y_act):
+		temp = np.sum(np.absolute( (np.sign(np.sqrt(y_pred)-0.5)+1.0)/2.0  - y_act))
+		return temp
 
 	def train(self):
 
@@ -206,7 +206,7 @@ class DD():
 
 			for epoch in range(0, self.max_epoch):
 				
-				for itr in range(self.num_questions/self.batch_size):
+				for itr in range(self.num_train_questions/self.batch_size):
 
 					feed_dict = { self.qs1_ph:self.question1_glove[itr*self.batch_size: (itr+1)*self.batch_size],
 								  self.qs2_ph:self.question2_glove[itr*self.batch_size: (itr+1)*self.batch_size],
@@ -215,25 +215,37 @@ class DD():
 					_, loss_str, temp_loss = sess.run([self.loss_optimizer, self.loss_summ, self.loss], feed_dict=feed_dict)
 
 					if(itr%100 == 0):
-						print(epoch, itr, temp_loss)
+
+						# Checking the performance of validation set
+
+						feed_dict = { self.qs1_ph:self.question1_glove[self.num_train_questions:],
+								  self.qs2_ph:self.question2_glove[self.num_train_questions:]
+								  }
+
+						temp_y_pred = sess.run(self.pred_y, feed_dict=feed_dict)
+						print(temp_y_pred[0])
+						acc = self.accuracy(temp_y_pred, np.reshape(self.y_train[self.num_train_questions:],(-1,1)))
+
+						print(epoch, itr, acc)
+
+						# sys.exit()
 					
 					writer.add_summary(loss_str, epoch*int(self.num_questions/self.batch_size) + itr)
 
 				saver.save(sess,os.path.join(self.check_dir,"dd"),global_step=epoch)
 
-
 	def test(self):
 
+		self.pre_process()
 		self.model_setup()
 		saver = tf.train.Saver()
-
-		self.embedding_matrix = np.load(self.check_dir+"/emb_matrix.npy")
 
 		with tf.Session() as sess:
 
 			chkpt_fname = tf.train.latest_checkpoint(self.check_dir)
 			saver.restore(sess,chkpt_fname)
 
+			y_pred_store = np.array((self.y_test.shape[0], 1),dtype=np.float32)
 
 			for itr in range(self.num_test_questions/self.batch_size):
 
@@ -245,7 +257,10 @@ class DD():
 				feed_dict={self.qs1_ph:question1_feed, self.qs2_ph:question2_feed}
 
 				temp_y_pred = sess.run(self.pred_y, feed_dict=feed_dict)
-				temp_y_test = np.reshape(self.y_test[itr*batch_size:(itr+1)*batch_size],(self.batch_size,1))
+				y_pred_store[itr*batch_size:(itr+1)*batch_size] = temp_y_pred
+
+			self.accuracy(y_pred_store, np.reshape(self.y_test,[-1,1]))
+				
 
 def main():
 
