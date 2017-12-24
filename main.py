@@ -13,7 +13,7 @@ class DD():
 		
 		opt = trainOptions().parse()[0]
 
-		self.batch_size = 32
+		self.batch_size = 128
 		self.max_epoch = opt.max_epoch
 		self.to_test = opt.test
 		self.load_checkpoint = False
@@ -77,19 +77,18 @@ class DD():
 		o_l1 = linear1d(ques1, self.emb_size, 128, name="l1")
 		o_l2 = linear1d(o_l1, 128, 128, name="l2")
 		o_l3 = linear1d(o_l2, 128, 128, name="l3")
-
-		o_conc = tf.concat([o_l1, o_l2, o_l3], axis=0)
-		out = tf.contrib.layers.batch_norm(o_enc, decay=0.9, updates_collections=None, epsilon=1e-5, scale=True, scope="batch_norm")
+		o_conc = tf.concat([o_l1, o_l2, o_l3], axis=1)
+		out = tf.contrib.layers.batch_norm(o_conc, decay=0.9, updates_collections=None, epsilon=1e-5, scale=True, scope="batch_norm")
 
 		return out
 
-	def loss_setup(self, pred, act):
+	def loss_setup(self, y_pred, y_act):
 
-		return 0
+		return tf.reduce_mean(y_act * tf.square(y_pred) + (1 - y_act) * tf.square(tf.maximum(1 - y_pred, 0)))
 
 	def model_setup(self):
 
-		with tf.variable_scope("Model") as scope:
+		with tf.variable_scope("Model", reuse=tf.AUTO_REUSE) as scope:
 
 			self.qs1_ph = tf.placeholder(tf.float32, [self.batch_size, self.emb_size])
 			self.qs2_ph = tf.placeholder(tf.float32, [self.batch_size, self.emb_size])
@@ -98,12 +97,13 @@ class DD():
 			o_net_1 = self.network(self.qs1_ph)
 			o_net_2 = self.network(self.qs2_ph)
 
-			pred_y = tf.sqrt(tf.mean(tf.squared_difference(o_net_1, o_net_2)))
+			pred_y = tf.sqrt(tf.reduce_mean(tf.squared_difference(o_net_1, o_net_2)))
 
 			self.loss = self.loss_setup(pred_y, self.y_ph)
 
 			optimizer = tf.train.AdamOptimizer(0.001, beta1=0.5)
-			self.loss_optimizer = optimizer.minimize(self.loss, var_list=enc_dec_vars)
+			self.loss_optimizer = optimizer.minimize(self.loss)
+			self.loss_summ = tf.summary.scalar("loss", self.loss)
 
 
 	def train(self):
@@ -166,6 +166,8 @@ class DD():
 			self.question2_glove = np.load(self.check_dir+"/glove2.npy")
 			self.y_train = np.load(self.check_dir+"/y_train.npy")
 
+			self.num_questions = self.question1_glove.shape[0]
+
 		self.model_setup()
 
 		init = tf.global_variables_initializer()
@@ -177,15 +179,18 @@ class DD():
 			writer = tf.summary.FileWriter(self.tensorboard_dir)
 
 			for epoch in range(0, self.max_epoch):
+				
 				for itr in range(self.num_questions/self.batch_size):
 
 					feed_dict = { self.qs1_ph:self.question1_glove[itr*self.batch_size: (itr+1)*self.batch_size],
 								  self.qs2_ph:self.question2_glove[itr*self.batch_size: (itr+1)*self.batch_size],
-								  self.y_ph:self.y_train[itr*self.batch_size: (itr+1)*self.batch_size]}
+								  self.y_ph:np.reshape(self.y_train[itr*self.batch_size: (itr+1)*self.batch_size],(self.batch_size,1))}
 
-					_ = sess.run(self.loss_optimizer, feed_dict=feed_dict)
+					_, loss_str, temp_loss = sess.run([self.loss_optimizer, self.loss_summ, self.loss], feed_dict=feed_dict)
 
-					sys.exit()
+					if(itr%100 == 0):
+						print(epoch, itr, temp_loss)
+					writer.add_summary(loss_str, epoch*int(self.num_questions/self.batch_size) + itr)
 
 def main():
 
