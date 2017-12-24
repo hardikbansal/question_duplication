@@ -31,6 +31,16 @@ class DD():
 		self.df['question1'] = self.df['question1'].apply(lambda x: str(x).strip())
 		self.df['question2'] = self.df['question2'].apply(lambda x: str(x).strip())
 
+		if(self.to_test):
+			self.df_test = pd.read_csv("data/train.csv", delimiter=",")
+			self.df_test['question1'] = self.df_test['question1'].apply(lambda x: str(x).strip())
+			self.df_test['question2'] = self.df_test['question2'].apply(lambda x: str(x).strip())
+
+			self.questions1_test = self.df['question1'].values
+			self.questions2_test = self.df['question2'].values
+			self.y_test = self.df['is_duplicate'].values
+
+
 		# Creating tokens for the given corpus
 
 		self.tk = tf.keras.preprocessing.text.Tokenizer(self.num_token, lower="true", split=' ')
@@ -84,7 +94,7 @@ class DD():
 
 	def loss_setup(self, y_pred, y_act):
 
-		return tf.reduce_mean(y_act * tf.square(y_pred) + (1 - y_act) * tf.square(tf.maximum(1 - y_pred, 0)))
+		return tf.reduce_mean((1 - y_act) * (y_pred) + ( y_act) * tf.square(tf.maximum(1 - tf.sqrt(y_pred), 0)))
 
 	def model_setup(self):
 
@@ -97,9 +107,9 @@ class DD():
 			o_net_1 = self.network(self.qs1_ph)
 			o_net_2 = self.network(self.qs2_ph)
 
-			pred_y = tf.sqrt(tf.reduce_mean(tf.squared_difference(o_net_1, o_net_2)))
+			self.pred_y = (tf.reduce_sum(tf.squared_difference(o_net_1, o_net_2)))
 
-			self.loss = self.loss_setup(pred_y, self.y_ph)
+			self.loss = self.loss_setup(self.pred_y, self.y_ph)
 
 			optimizer = tf.train.AdamOptimizer(0.001, beta1=0.5)
 			self.loss_optimizer = optimizer.minimize(self.loss)
@@ -130,22 +140,22 @@ class DD():
 
 			while(i+1000 < self.num_questions):
 
-				temp = self.tk.texts_to_matrix(self.questions1[i:i+1000], mode="tqidf")
+				temp = self.tk.texts_to_matrix(self.questions1[i:i+1000], mode="tfidf")
 				temp = np.matmul(temp, self.embedding_matrix)
 				self.question1_glove[i:i+1000] = temp
 
-				temp = self.tk.texts_to_matrix(self.questions2[i:i+1000], mode="tqidf")
+				temp = self.tk.texts_to_matrix(self.questions2[i:i+1000], mode="tfidf")
 				temp = np.matmul(temp, self.embedding_matrix)
 				self.question2_glove[i:i+1000] = temp
 
 				i+=1000
 				print i
 
-			temp = self.tk.texts_to_matrix(self.questions1[i:], mode="tqidf")
+			temp = self.tk.texts_to_matrix(self.questions1[i:], mode="tfidf")
 			temp = np.matmul(temp, self.embedding_matrix)
 			self.question1_glove[i:] = temp
 
-			temp = self.tk.texts_to_matrix(self.questions2[i:], mode="tqidf")
+			temp = self.tk.texts_to_matrix(self.questions2[i:], mode="tfidf")
 			temp = np.matmul(temp, self.embedding_matrix)
 			self.question2_glove[i:] = temp
 
@@ -159,14 +169,16 @@ class DD():
 			np.save(self.check_dir+"/glove2.npy", self.question2_glove)
 			self.y_train = self.df['is_duplicate'].values
 			np.save(self.check_dir+"/y_train.npy", self.y_train)
+			np.save(self.check_dir+"emb_matrix.npy", self.embedding_matrix)
 
 		else :
+
+			self.load_dataset()
 
 			self.question1_glove = np.load(self.check_dir+"/glove1.npy")
 			self.question2_glove = np.load(self.check_dir+"/glove2.npy")
 			self.y_train = np.load(self.check_dir+"/y_train.npy")
-
-			self.num_questions = self.question1_glove.shape[0]
+			self.embedding_matrix = np.load(self.check_dir+"/emb_matrix.npy")
 
 		self.model_setup()
 
@@ -191,6 +203,39 @@ class DD():
 					if(itr%100 == 0):
 						print(epoch, itr, temp_loss)
 					writer.add_summary(loss_str, epoch*int(self.num_questions/self.batch_size) + itr)
+
+				saver.save(sess,os.path.join(self.check_dir,"dd"),global_step=epoch)
+
+
+	def test(self):
+
+		self.model_setup()
+		saver = tf.train.Saver()
+
+		self.embedding_matrix = np.load(self.check_dir+"/emb_matrix.npy")
+
+
+		with tf.Session() as sess:
+
+			chkpt_fname = tf.train.latest_checkpoint(self.check_dir)
+			saver.restore(sess,chkpt_fname)
+
+
+			for itr in range(self.num_test_questions/self.batch_size):
+
+				temp = self.tk.texts_to_matrix(self.questions1[itr*batch_size:(itr+1)*batch_size], mode="tfidf")
+				questions1_feed = np.matmul(temp, self.embedding_matrix)
+				temp = self.tk.texts_to_matrix(self.questions2[itr*batch_size:(itr+1)*batch_size], mode="tfidf")
+				questions2_feed = np.matmul(temp, self.embedding_matrix)
+
+				feed_dict={self.qs1_ph:question1_feed, self.qs2_ph:question2_feed}
+
+				temp_y_pred = sess.run(self.pred_y, feed_dict=feed_dict)
+				temp_y_test = np.reshape(self.y_test[itr*batch_size:(itr+1)*batch_size],(self.batch_size,1))
+
+
+
+
 
 def main():
 
