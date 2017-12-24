@@ -166,7 +166,7 @@ class DD():
 
 	def contrast_loss(self, y_pred, y_act):
 
-		return tf.reduce_mean((1 - y_act)*(y_pred) + (y_act)*tf.square(tf.maximum(1 - tf.sqrt(y_pred), 0)))
+		return tf.reduce_mean((y_act)*(y_pred) + (1-y_act)*tf.square(tf.maximum(1 - tf.sqrt(y_pred), 0)))
 
 	def model_setup(self):
 
@@ -218,15 +218,19 @@ class DD():
 
 						# Checking the performance of validation set
 
-						feed_dict = { self.qs1_ph:self.question1_glove[self.num_train_questions:],
-								  self.qs2_ph:self.question2_glove[self.num_train_questions:]
-								  }
+						temp_loss = sess.run(self.loss, feed_dict=feed_dict)
 
-						temp_y_pred = sess.run(self.pred_y, feed_dict=feed_dict)
-						print(temp_y_pred[0])
-						acc = self.accuracy(temp_y_pred, np.reshape(self.y_train[self.num_train_questions:],(-1,1)))
+						print(epoch, itr, temp_loss)
+						# print(epoch, itr, acc)
+						# feed_dict = { self.qs1_ph:self.question1_glove[self.num_train_questions:],
+						# 		  self.qs2_ph:self.question2_glove[self.num_train_questions:]
+						# 		  }
 
-						print(epoch, itr, acc)
+						# temp_y_pred = sess.run(self.pred_y, feed_dict=feed_dict)
+						# print(temp_y_pred[0])
+						# acc = self.accuracy(temp_y_pred, np.reshape(self.y_train[self.num_train_questions:],(-1,1)))
+
+						# print(epoch, itr, acc)
 
 						# sys.exit()
 					
