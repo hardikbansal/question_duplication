@@ -218,19 +218,19 @@ class DD():
 
 						# Checking the performance of validation set
 
-						temp_loss = sess.run(self.loss, feed_dict=feed_dict)
+						# temp_loss = sess.run(self.loss, feed_dict=feed_dict)
 
-						print(epoch, itr, temp_loss)
+						# print(epoch, itr, temp_loss)
 						# print(epoch, itr, acc)
-						# feed_dict = { self.qs1_ph:self.question1_glove[self.num_train_questions:],
-						# 		  self.qs2_ph:self.question2_glove[self.num_train_questions:]
-						# 		  }
+						feed_dict = { self.qs1_ph:self.question1_glove[self.num_train_questions:],
+								  self.qs2_ph:self.question2_glove[self.num_train_questions:]
+								  }
 
-						# temp_y_pred = sess.run(self.pred_y, feed_dict=feed_dict)
-						# print(temp_y_pred[0])
-						# acc = self.accuracy(temp_y_pred, np.reshape(self.y_train[self.num_train_questions:],(-1,1)))
+						temp_y_pred = sess.run(self.pred_y, feed_dict=feed_dict)
+						print(temp_y_pred[0])
+						acc = self.accuracy(temp_y_pred, np.reshape(self.y_train[self.num_train_questions:],(-1,1)))
 
-						# print(epoch, itr, acc)
+						print(epoch, itr, acc)
 
 						# sys.exit()
 					
