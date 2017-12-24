@@ -46,17 +46,19 @@ class DD():
 		self.word_index = self.tk.word_index
 
 		
-		# Loading test dataset 
+		# Loading test dataset
 
-		self.df_test = pd.read_csv("data/test.csv", delimiter=",")
-		self.num_test_questions = self.df_test.shape[0]
-		
-		self.df_test['question1'] = self.df_test['question1'].apply(lambda x: str(x).strip())
-		self.df_test['question2'] = self.df_test['question2'].apply(lambda x: str(x).strip())
+		if(to_test):
+
+			self.df_test = pd.read_csv("data/test.csv", delimiter=",")
+			self.num_test_questions = self.df_test.shape[0]
+			
+			self.df_test['question1'] = self.df_test['question1'].apply(lambda x: str(x).strip())
+			self.df_test['question2'] = self.df_test['question2'].apply(lambda x: str(x).strip())
 
 
-		self.questions1_test = self.df_test['question1'].values
-		self.questions2_test = self.df_test['question2'].values
+			self.questions1_test = self.df_test['question1'].values
+			self.questions2_test = self.df_test['question2'].values
 
 	def pre_process(self):
 
@@ -127,10 +129,11 @@ class DD():
 	def glove_emb(self):
 
 		self.glove_embedding = {}
-
 		self.n_words = len(self.word_index)
 
 		print("Loading glove matrix")
+
+		# Opening the file consisting of glove embeddings
 		
 		f = open("data/glove.42B.300d.txt", "r")
 		for lines in f:
@@ -189,7 +192,7 @@ class DD():
 
 	def accuracy(self, y_pred, y_act):
 		temp = np.sum(np.absolute( (np.sign(np.sqrt(y_pred)-0.5)+1.0)/2.0  - y_act))
-		return temp
+		return temp/y_pred.shape[0]
 
 	def train(self):
 
@@ -215,13 +218,6 @@ class DD():
 					_, loss_str, temp_loss = sess.run([self.loss_optimizer, self.loss_summ, self.loss], feed_dict=feed_dict)
 
 					if(itr%100 == 0):
-
-						# Checking the performance of validation set
-
-						# temp_loss = sess.run(self.loss, feed_dict=feed_dict)
-
-						# print(epoch, itr, temp_loss)
-						# print(epoch, itr, acc)
 						feed_dict = { self.qs1_ph:self.question1_glove[self.num_train_questions:],
 								  self.qs2_ph:self.question2_glove[self.num_train_questions:]
 								  }
@@ -231,8 +227,6 @@ class DD():
 						acc = self.accuracy(temp_y_pred, np.reshape(self.y_train[self.num_train_questions:],(-1,1)))
 
 						print(epoch, itr, acc)
-
-						# sys.exit()
 					
 					writer.add_summary(loss_str, epoch*int(self.num_questions/self.batch_size) + itr)
 
