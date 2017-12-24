@@ -34,7 +34,7 @@ class DD():
 
 		# Creating tokens for the given corpus
 
-		tk = tf.keras.preprocessing.text.Tokenizer(20, lower="true", split=' ')
+		tk = tf.keras.preprocessing.text.Tokenizer(2000, lower="true", split=' ')
 		
 		questions1 = self.df['question1'].values
 		questions2 = self.df['question2'].values
@@ -105,10 +105,10 @@ class DD():
 		# Loading dataset and creating embeddings
 		self.load_dataset()
 
+		sys.exit()
 		# Loading the glove embedding from the file
 		self.glove_emb()
 
-		exit()
 
 		self.question1_glove = tf.matmul(self.question1_matrix, self.embedding_matrix)
 		self.question2_glove = tf.matmul(self.question2_matrix, self.embedding_matrix)
