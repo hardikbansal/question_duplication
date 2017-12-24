@@ -31,16 +31,6 @@ class DD():
 		self.df['question1'] = self.df['question1'].apply(lambda x: str(x).strip())
 		self.df['question2'] = self.df['question2'].apply(lambda x: str(x).strip())
 
-		if(self.to_test):
-			self.df_test = pd.read_csv("data/train.csv", delimiter=",")
-			self.df_test['question1'] = self.df_test['question1'].apply(lambda x: str(x).strip())
-			self.df_test['question2'] = self.df_test['question2'].apply(lambda x: str(x).strip())
-
-			self.questions1_test = self.df['question1'].values
-			self.questions2_test = self.df['question2'].values
-			self.y_test = self.df['is_duplicate'].values
-
-
 		# Creating tokens for the given corpus
 
 		self.tk = tf.keras.preprocessing.text.Tokenizer(self.num_token, lower="true", split=' ')
@@ -53,6 +43,24 @@ class DD():
 		self.num_questions = self.questions1.size
 		self.word_index = self.tk.word_index
 		
+		# Loading test and validation dataset 
+
+		self.df_test = pd.read_csv("data/test.csv", delimiter=",")
+		self.num_test_questions = self.df_test.shape[0]
+		
+		self.df_test['question1'] = self.df_test['question1'].apply(lambda x: str(x).strip())
+		self.df_test['question2'] = self.df_test['question2'].apply(lambda x: str(x).strip())
+
+		self.questions1_valid = self.df['question1'].values[:self.num_test_questions/2]
+		self.questions2_valid = self.df['question2'].values[:self.num_test_questions/2]
+		self.y_valid = self.df['is_duplicate'].values[:self.num_test_questions/2]
+
+
+		self.questions1_test = self.df['question1'].values[self.num_test_questions/2:]
+		self.questions2_test = self.df['question2'].values[self.num_test_questions/2:]
+		self.y_test = self.df['is_duplicate'].values[self.num_test_questions/2:]
+
+
 
 	def glove_emb(self):
 
@@ -82,9 +90,9 @@ class DD():
 
 
 
-	def network(self, ques1):
+	def network(self, ques):
 
-		o_l1 = linear1d(ques1, self.emb_size, 128, name="l1")
+		o_l1 = linear1d(ques, self.emb_size, 128, name="l1")
 		o_l2 = linear1d(o_l1, 128, 128, name="l2")
 		o_l3 = linear1d(o_l2, 128, 128, name="l3")
 		o_conc = tf.concat([o_l1, o_l2, o_l3], axis=1)
@@ -92,17 +100,18 @@ class DD():
 
 		return out
 
+
 	def loss_setup(self, y_pred, y_act):
 
-		return tf.reduce_mean((1 - y_act) * (y_pred) + ( y_act) * tf.square(tf.maximum(1 - tf.sqrt(y_pred), 0)))
+		return tf.reduce_mean((1 - y_act)*(y_pred) + (y_act)*tf.square(tf.maximum(1 - tf.sqrt(y_pred), 0)))
 
 	def model_setup(self):
 
 		with tf.variable_scope("Model", reuse=tf.AUTO_REUSE) as scope:
 
-			self.qs1_ph = tf.placeholder(tf.float32, [self.batch_size, self.emb_size])
-			self.qs2_ph = tf.placeholder(tf.float32, [self.batch_size, self.emb_size])
-			self.y_ph = tf.placeholder(tf.float32, [self.batch_size, 1])
+			self.qs1_ph = tf.placeholder(tf.float32, [None, self.emb_size])
+			self.qs2_ph = tf.placeholder(tf.float32, [None, self.emb_size])
+			self.y_ph = tf.placeholder(tf.float32, [None, 1])
 
 			o_net_1 = self.network(self.qs1_ph)
 			o_net_2 = self.network(self.qs2_ph)
@@ -115,9 +124,10 @@ class DD():
 			self.loss_optimizer = optimizer.minimize(self.loss)
 			self.loss_summ = tf.summary.scalar("loss", self.loss)
 
+	def pre_process(self):
 
-	def train(self):
-
+		# checking if the pre processing has been done alreay or not
+		# If not run the code to preprocess otherwise just load the data
 
 		if not os.path.exists(self.check_dir+"/glove1.npy"):
 
@@ -163,7 +173,7 @@ class DD():
 				os.makedirs(self.check_dir)
 
 
-			#Saving the vector representations for questions
+			# Saving processed data
 
 			np.save(self.check_dir+"/glove1.npy", self.question1_glove)
 			np.save(self.check_dir+"/glove2.npy", self.question2_glove)
@@ -173,13 +183,17 @@ class DD():
 
 		else :
 
-			self.load_dataset()
+			# Loading Processed data
 
+			self.load_dataset()
 			self.question1_glove = np.load(self.check_dir+"/glove1.npy")
 			self.question2_glove = np.load(self.check_dir+"/glove2.npy")
 			self.y_train = np.load(self.check_dir+"/y_train.npy")
 			self.embedding_matrix = np.load(self.check_dir+"/emb_matrix.npy")
 
+	def train(self):
+
+		self.pre_process()
 		self.model_setup()
 
 		init = tf.global_variables_initializer()
@@ -202,6 +216,7 @@ class DD():
 
 					if(itr%100 == 0):
 						print(epoch, itr, temp_loss)
+					
 					writer.add_summary(loss_str, epoch*int(self.num_questions/self.batch_size) + itr)
 
 				saver.save(sess,os.path.join(self.check_dir,"dd"),global_step=epoch)
@@ -213,7 +228,6 @@ class DD():
 		saver = tf.train.Saver()
 
 		self.embedding_matrix = np.load(self.check_dir+"/emb_matrix.npy")
-
 
 		with tf.Session() as sess:
 
@@ -232,10 +246,6 @@ class DD():
 
 				temp_y_pred = sess.run(self.pred_y, feed_dict=feed_dict)
 				temp_y_test = np.reshape(self.y_test[itr*batch_size:(itr+1)*batch_size],(self.batch_size,1))
-
-
-
-
 
 def main():
 
